@@ -86,12 +86,14 @@
             <div class="poll-options">
               <% const totalVotes = p.options.reduce((s,o) => s + o.votes, 0); %>
               <% p.options.forEach(o => { %>
+                <% const pct = totalVotes ? Math.round(o.votes / totalVotes * 100) : 0; %>
                 <div class="poll-opt">
-                  <div class="opt-label"><%= o.text %> <span class="opt-count"><%= o.votes %>표</span></div>
-                  <div class="opt-bar"><div class="opt-fill" style="width:<%= totalVotes ? (o.votes/totalVotes*100) : 0 %>%"></div></div>
+                  <div class="opt-label"><%= o.text %> <span class="opt-count"><%= o.votes %>표 (<%= pct %>%)</span></div>
+                  <div class="opt-bar"><div class="opt-fill" style="width:<%= pct %>%"></div></div>
                 </div>
               <% }) %>
             </div>
+            <div class="poll-total">총 <%= totalVotes %>표</div>
           </div>
         <% }) %>
       </div>
@@ -101,8 +103,9 @@
   <script src="/socket.io/socket.io.js"></script>
   <script>
     const ROOM = '<%= room.code %>';
-    const socket = io();
+    const socket = io({ reconnection: true, reconnectionAttempts: 10 });
     socket.emit('join', ROOM);
+    socket.on('connect', () => socket.emit('join', ROOM));
 
     // Share URL
     const shareUrl = location.origin + '/r/' + ROOM;
@@ -163,10 +166,13 @@
       const optEls = card.querySelectorAll('.poll-opt');
       options.forEach((o, i) => {
         if (optEls[i]) {
-          optEls[i].querySelector('.opt-count').textContent = o.votes + '표';
-          optEls[i].querySelector('.opt-fill').style.width = (total ? (o.votes/total*100) : 0) + '%';
+          const pct = total ? Math.round(o.votes / total * 100) : 0;
+          optEls[i].querySelector('.opt-count').textContent = o.votes + '표 (' + pct + '%)';
+          optEls[i].querySelector('.opt-fill').style.width = pct + '%';
         }
       });
+      const totalEl = card.querySelector('.poll-total');
+      if (totalEl) totalEl.textContent = '총 ' + total + '표';
     });
 
     function addQuestionCard(q, isAdmin) {

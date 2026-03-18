@@ -7,10 +7,10 @@ services:
       - "1080:3000"
     volumes:
       - nowsay-data:/app/data
+    env_file:
+      - .env
     environment:
-      - PORT=3000
       - DB_PATH=/app/data/nowsay.db
-      - SESSION_SECRET=nowsay-prod-secret-change-me
 
 volumes:
   nowsay-data:

@@ -1,3 +1,4 @@
+require('dotenv').config();
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
@@ -234,16 +235,21 @@ io.on('connection', (socket) => {
   // Poll vote
   socket.on('poll:vote', (data) => {
     const { optionId, pollId, roomCode } = data;
-    if (!optionId) return;
+    if (!optionId || !pollId || !roomCode) return;
+    // Verify poll exists and is active
+    const poll = pollStmts.getById.get(pollId);
+    if (!poll || !poll.active) return;
+    // Verify option belongs to this poll
+    const opt = pollStmts.getOption.get(optionId);
+    if (!opt || opt.poll_id !== Number(pollId)) return;
     pollStmts.vote.run(optionId);
     const options = pollStmts.getOptions.all(pollId);
-    io.to(roomCode).emit('poll:updated', { pollId, options });
+    io.to(roomCode).emit('poll:updated', { pollId: Number(pollId), options });
   });
 });
 
 // ── Start ───────────────────────────────────────────────────
 server.listen(PORT, HOST, () => {
-  console.log(`\n  🎤 NowSay 실행 중: http://localhost:${PORT}\n`);
-  console.log(`  관리자 로그인: /login`);
-  console.log(`  계정: admin / nowsay2024!\n`);
+  console.log(`\n  🎤 NowSay 실행 중: http://localhost:${PORT}`);
+  console.log(`  관리자 로그인: /login\n`);
 });

@@ -62,14 +62,20 @@ db.exec(`
 `);
 
 // ── Seed admin account ──────────────────────────────────────
-// 강의자 계정: admin / nowsay2024!
-const ADMIN_USER = 'admin';
-const ADMIN_PASS = 'nowsay2024!';
+const ADMIN_USER = process.env.ADMIN_USER || 'admin';
+const ADMIN_PASS = process.env.ADMIN_PASS || 'nowsay!@#2026';
 
 const existing = db.prepare('SELECT id FROM admin WHERE username = ?').get(ADMIN_USER);
 if (!existing) {
   const hash = bcrypt.hashSync(ADMIN_PASS, 10);
   db.prepare('INSERT INTO admin (username, password_hash) VALUES (?, ?)').run(ADMIN_USER, hash);
+} else {
+  // Update password if env changed
+  const admin = db.prepare('SELECT * FROM admin WHERE username = ?').get(ADMIN_USER);
+  if (!bcrypt.compareSync(ADMIN_PASS, admin.password_hash)) {
+    const hash = bcrypt.hashSync(ADMIN_PASS, 10);
+    db.prepare('UPDATE admin SET password_hash = ? WHERE username = ?').run(hash, ADMIN_USER);
+  }
 }
 
 // ── Helper: generate short room code (6 chars) ─────────────

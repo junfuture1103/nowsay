@@ -58,17 +58,19 @@
       <div id="pollList" class="poll-list">
         <% polls.filter(p => p.active).forEach(p => { %>
           <div class="poll-card" data-poll-id="<%= p.id %>">
-            <h4><%= p.question %></h4>
+            <h4 class="poll-question"><%= p.question %></h4>
             <div class="poll-options">
               <% const totalVotes = p.options.reduce((s,o) => s + o.votes, 0); %>
               <% p.options.forEach(o => { %>
+                <% const pct = totalVotes ? Math.round(o.votes / totalVotes * 100) : 0; %>
                 <button class="poll-vote-btn" onclick="votePoll(<%= p.id %>, <%= o.id %>)" data-opt-id="<%= o.id %>">
+                  <div class="opt-bar"><div class="opt-fill" style="width:<%= pct %>%"></div></div>
                   <span class="opt-label"><%= o.text %></span>
-                  <span class="opt-count"><%= o.votes %>표</span>
-                  <div class="opt-bar"><div class="opt-fill" style="width:<%= totalVotes ? (o.votes/totalVotes*100) : 0 %>%"></div></div>
+                  <span class="opt-meta"><span class="opt-pct"><%= pct %>%</span> · <span class="opt-count"><%= o.votes %>표</span></span>
                 </button>
               <% }) %>
             </div>
+            <div class="poll-total">총 <%= totalVotes %>표</div>
           </div>
         <% }) %>
         <% if (polls.filter(p => p.active).length === 0) { %>
@@ -82,10 +84,12 @@
   <script>
     const ROOM = '<%= room.code %>';
     const ACTIVE = <%= room.active ? 'true' : 'false' %>;
-    const socket = io();
+    const socket = io({ reconnection: true, reconnectionAttempts: 10 });
     socket.emit('join', ROOM);
+    socket.on('connect', () => socket.emit('join', ROOM));
 
     let currentSort = 'popular';
+    let submitting = false;
 
     // Track voted polls in localStorage
     function getVotedPolls() {
@@ -145,11 +149,20 @@
     const submitBtn = document.getElementById('submitQ');
     if (submitBtn) {
       submitBtn.addEventListener('click', () => {
+        if (submitting) return;
         const text = document.getElementById('questionText').value.trim();
         if (!text) return;
+        submitting = true;
+        submitBtn.disabled = true;
+        submitBtn.textContent = '전송 중...';
         const nickname = document.getElementById('nickname').value.trim() || '익명';
         socket.emit('question:new', { roomCode: ROOM, text, nickname });
         document.getElementById('questionText').value = '';
+        setTimeout(() => {
+          submitting = false;
+          submitBtn.disabled = false;
+          submitBtn.textContent = '질문 보내기';
+        }, 1000);
       });
       // Enter key submit (Ctrl+Enter or Cmd+Enter)
       document.getElementById('questionText').addEventListener('keydown', (e) => {
@@ -164,27 +177,46 @@
       if (hasLiked(id)) return;
       markLiked(id);
       socket.emit('question:like', { id, roomCode: ROOM });
-      // Disable button visually
       const card = document.querySelector(`.q-card[data-id="${id}"]`);
-      if (card) card.querySelector('.like-btn').classList.add('liked');
+      if (card) {
+        const btn = card.querySelector('.like-btn');
+        btn.classList.add('liked');
+        btn.disabled = true;
+      }
     }
 
     // Vote
     function votePoll(pollId, optionId) {
       if (hasVoted(pollId)) return;
       markVoted(pollId);
-      socket.emit('poll:vote', { optionId, pollId, roomCode: ROOM });
-      // Disable all buttons in this poll
+      socket.emit('poll:vote', { optionId: Number(optionId), pollId: Number(pollId), roomCode: ROOM });
       const card = document.querySelector(`.poll-card[data-poll-id="${pollId}"]`);
-      if (card) card.querySelectorAll('.poll-vote-btn').forEach(b => b.classList.add('voted'));
+      if (card) {
+        card.querySelectorAll('.poll-vote-btn').forEach(b => {
+          b.classList.add('voted');
+          b.disabled = true;
+        });
+        // Highlight selected option
+        const selected = card.querySelector(`.poll-vote-btn[data-opt-id="${optionId}"]`);
+        if (selected) selected.classList.add('selected');
+      }
     }
 
     // Mark already liked/voted on load
     document.querySelectorAll('.q-card').forEach(card => {
-      if (hasLiked(card.dataset.id)) card.querySelector('.like-btn').classList.add('liked');
+      if (hasLiked(card.dataset.id)) {
+        const btn = card.querySelector('.like-btn');
+        btn.classList.add('liked');
+        btn.disabled = true;
+      }
     });
     document.querySelectorAll('.poll-card').forEach(card => {
-      if (hasVoted(card.dataset.pollId)) card.querySelectorAll('.poll-vote-btn').forEach(b => b.classList.add('voted'));
+      if (hasVoted(card.dataset.pollId)) {
+        card.querySelectorAll('.poll-vote-btn').forEach(b => {
+          b.classList.add('voted');
+          b.disabled = true;
+        });
+      }
     });
 
     // Real-time events
@@ -234,7 +266,11 @@
       options.forEach((o, i) => {
         if (btns[i]) {
           btns[i].querySelector('.opt-count').textContent = o.votes + '표';
-          btns[i].querySelector('.opt-fill').style.width = (total ? (o.votes/total*100) : 0) + '%';
+          const pct = total ? Math.round(o.votes / total * 100) : 0;
+          btns[i].querySelector('.opt-fill').style.width = pct + '%';
+          // Update percentage text
+          let pctEl = btns[i].querySelector('.opt-pct');
+          if (pctEl) pctEl.textContent = pct + '%';
         }
       });
     });
@@ -273,7 +309,6 @@
 
     function addPollCard(p) {
       const list = document.getElementById('pollList');
-      // Remove empty message if present
       const empty = list.querySelector('.empty');
       if (empty) empty.remove();
       const total = p.options.reduce((s,o) => s + o.votes, 0);
@@ -281,18 +316,25 @@
       div.className = 'poll-card';
       div.dataset.pollId = p.id;
       div.innerHTML = `
-        <h4>${escapeHtml(p.question)}</h4>
+        <h4 class="poll-question">${escapeHtml(p.question)}</h4>
         <div class="poll-options">
-          ${p.options.map(o => `
+          ${p.options.map(o => {
+            const pct = total ? Math.round(o.votes / total * 100) : 0;
+            return `
             <button class="poll-vote-btn" onclick="votePoll(${p.id}, ${o.id})" data-opt-id="${o.id}">
+              <div class="opt-bar"><div class="opt-fill" style="width:${pct}%"></div></div>
               <span class="opt-label">${escapeHtml(o.text)}</span>
-              <span class="opt-count">${o.votes}표</span>
-              <div class="opt-bar"><div class="opt-fill" style="width:${total ? (o.votes/total*100) : 0}%"></div></div>
-            </button>
-          `).join('')}
+              <span class="opt-meta"><span class="opt-pct">${pct}%</span> · <span class="opt-count">${o.votes}표</span></span>
+            </button>`;
+          }).join('')}
         </div>
+        <div class="poll-total">총 ${total}표</div>
       `;
       list.prepend(div);
+      // Check if already voted
+      if (hasVoted(p.id)) {
+        div.querySelectorAll('.poll-vote-btn').forEach(b => { b.classList.add('voted'); b.disabled = true; });
+      }
     }
 
     function updateQCount(delta) {
