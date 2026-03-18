@@ -1,0 +1,16 @@
+services:
+  nowsay:
+    build: .
+    container_name: nowsay
+    restart: unless-stopped
+    ports:
+      - "1080:3000"
+    volumes:
+      - nowsay-data:/app/data
+    environment:
+      - PORT=3000
+      - DB_PATH=/app/data/nowsay.db
+      - SESSION_SECRET=nowsay-prod-secret-change-me
+
+volumes:
+  nowsay-data:

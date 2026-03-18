@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NowSay - <%= room.title %></title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <nav class="room-nav">
+    <span class="logo-sm">🎤 NowSay</span>
+    <span class="room-title-nav"><%= room.title %></span>
+  </nav>
+
+  <div class="container">
+    <!-- Tabs -->
+    <div class="tabs">
+      <button class="tab active" data-tab="questions">질문 (<span id="qCount"><%= questions.length %></span>)</button>
+      <button class="tab" data-tab="polls">투표 (<span id="pCount"><%= polls.filter(p => p.active).length %></span>)</button>
+    </div>
+
+    <!-- Questions tab -->
+    <div class="tab-content active" id="tab-questions">
+      <% if (room.active) { %>
+        <div class="ask-form">
+          <input type="text" id="nickname" placeholder="닉네임 (선택)" maxlength="20" />
+          <textarea id="questionText" placeholder="질문을 입력하세요..." maxlength="500" rows="2"></textarea>
+          <button class="btn" id="submitQ">질문 보내기</button>
+        </div>
+      <% } else { %>
+        <div class="closed-msg">이 강의실은 현재 질문을 받지 않습니다.</div>
+      <% } %>
+
+      <div class="sort-bar">
+        <button class="sort-btn active" data-sort="popular">인기순</button>
+        <button class="sort-btn" data-sort="recent">최신순</button>
+      </div>
+
+      <div id="questionList" class="question-list">
+        <% questions.forEach(q => { %>
+          <div class="q-card <%= q.answered ? 'answered' : '' %> <%= q.pinned ? 'pinned' : '' %>" data-id="<%= q.id %>" data-likes="<%= q.likes %>" data-time="<%= q.created_at %>">
+            <div class="q-body">
+              <% if (q.pinned) { %><span class="pin-icon">📌</span><% } %>
+              <% if (q.answered) { %><span class="answered-icon">✅</span><% } %>
+              <span class="q-text"><%= q.text %></span>
+              <span class="q-nick">— <%= q.nickname %></span>
+            </div>
+            <div class="q-actions">
+              <button class="like-btn" onclick="likeQuestion(<%= q.id %>)">👍 <span class="lc"><%= q.likes %></span></button>
+            </div>
+          </div>
+        <% }) %>
+      </div>
+    </div>
+
+    <!-- Polls tab -->
+    <div class="tab-content" id="tab-polls">
+      <div id="pollList" class="poll-list">
+        <% polls.filter(p => p.active).forEach(p => { %>
+          <div class="poll-card" data-poll-id="<%= p.id %>">
+            <h4><%= p.question %></h4>
+            <div class="poll-options">
+              <% const totalVotes = p.options.reduce((s,o) => s + o.votes, 0); %>
+              <% p.options.forEach(o => { %>
+                <button class="poll-vote-btn" onclick="votePoll(<%= p.id %>, <%= o.id %>)" data-opt-id="<%= o.id %>">
+                  <span class="opt-label"><%= o.text %></span>
+                  <span class="opt-count"><%= o.votes %>표</span>
+                  <div class="opt-bar"><div class="opt-fill" style="width:<%= totalVotes ? (o.votes/totalVotes*100) : 0 %>%"></div></div>
+                </button>
+              <% }) %>
+            </div>
+          </div>
+        <% }) %>
+        <% if (polls.filter(p => p.active).length === 0) { %>
+          <p class="empty">진행 중인 투표가 없습니다.</p>
+        <% } %>
+      </div>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const ROOM = '<%= room.code %>';
+    const ACTIVE = <%= room.active ? 'true' : 'false' %>;
+    const socket = io();
+    socket.emit('join', ROOM);
+
+    let currentSort = 'popular';
+
+    // Track voted polls in localStorage
+    function getVotedPolls() {
+      try { return JSON.parse(localStorage.getItem('nowsay_votes') || '{}'); } catch { return {}; }
+    }
+    function markVoted(pollId) {
+      const v = getVotedPolls(); v[pollId] = true; localStorage.setItem('nowsay_votes', JSON.stringify(v));
+    }
+    function hasVoted(pollId) { return !!getVotedPolls()[pollId]; }
+
+    // Track liked questions in localStorage
+    function getLikedQuestions() {
+      try { return JSON.parse(localStorage.getItem('nowsay_likes_' + ROOM) || '{}'); } catch { return {}; }
+    }
+    function markLiked(qId) {
+      const v = getLikedQuestions(); v[qId] = true; localStorage.setItem('nowsay_likes_' + ROOM, JSON.stringify(v));
+    }
+    function hasLiked(qId) { return !!getLikedQuestions()[qId]; }
+
+    // Tabs
+    document.querySelectorAll('.tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+        tab.classList.add('active');
+        document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+      });
+    });
+
+    // Sort
+    document.querySelectorAll('.sort-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.sort-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        currentSort = btn.dataset.sort;
+        sortQuestions();
+      });
+    });
+
+    function sortQuestions() {
+      const list = document.getElementById('questionList');
+      const cards = Array.from(list.querySelectorAll('.q-card'));
+      cards.sort((a, b) => {
+        // pinned first
+        const ap = a.classList.contains('pinned') ? 1 : 0;
+        const bp = b.classList.contains('pinned') ? 1 : 0;
+        if (ap !== bp) return bp - ap;
+        if (currentSort === 'popular') {
+          return parseInt(b.dataset.likes) - parseInt(a.dataset.likes);
+        }
+        return b.dataset.time > a.dataset.time ? 1 : -1;
+      });
+      cards.forEach(c => list.appendChild(c));
+    }
+
+    // Submit question
+    const submitBtn = document.getElementById('submitQ');
+    if (submitBtn) {
+      submitBtn.addEventListener('click', () => {
+        const text = document.getElementById('questionText').value.trim();
+        if (!text) return;
+        const nickname = document.getElementById('nickname').value.trim() || '익명';
+        socket.emit('question:new', { roomCode: ROOM, text, nickname });
+        document.getElementById('questionText').value = '';
+      });
+      // Enter key submit (Ctrl+Enter or Cmd+Enter)
+      document.getElementById('questionText').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+          submitBtn.click();
+        }
+      });
+    }
+
+    // Like
+    function likeQuestion(id) {
+      if (hasLiked(id)) return;
+      markLiked(id);
+      socket.emit('question:like', { id, roomCode: ROOM });
+      // Disable button visually
+      const card = document.querySelector(`.q-card[data-id="${id}"]`);
+      if (card) card.querySelector('.like-btn').classList.add('liked');
+    }
+
+    // Vote
+    function votePoll(pollId, optionId) {
+      if (hasVoted(pollId)) return;
+      markVoted(pollId);
+      socket.emit('poll:vote', { optionId, pollId, roomCode: ROOM });
+      // Disable all buttons in this poll
+      const card = document.querySelector(`.poll-card[data-poll-id="${pollId}"]`);
+      if (card) card.querySelectorAll('.poll-vote-btn').forEach(b => b.classList.add('voted'));
+    }
+
+    // Mark already liked/voted on load
+    document.querySelectorAll('.q-card').forEach(card => {
+      if (hasLiked(card.dataset.id)) card.querySelector('.like-btn').classList.add('liked');
+    });
+    document.querySelectorAll('.poll-card').forEach(card => {
+      if (hasVoted(card.dataset.pollId)) card.querySelectorAll('.poll-vote-btn').forEach(b => b.classList.add('voted'));
+    });
+
+    // Real-time events
+    socket.on('question:new', q => {
+      addQuestionCard(q);
+      updateQCount(1);
+      sortQuestions();
+    });
+
+    socket.on('question:updated', q => {
+      const card = document.querySelector(`.q-card[data-id="${q.id}"]`);
+      if (!card) return;
+      card.className = 'q-card' + (q.answered ? ' answered' : '') + (q.pinned ? ' pinned' : '');
+      card.dataset.likes = q.likes;
+      card.querySelector('.q-text').textContent = q.text;
+      card.querySelector('.lc').textContent = q.likes;
+      // Update icons
+      const pinIcon = card.querySelector('.pin-icon');
+      const answeredIcon = card.querySelector('.answered-icon');
+      if (q.pinned && !pinIcon) card.querySelector('.q-body').insertAdjacentHTML('afterbegin', '<span class="pin-icon">📌</span>');
+      else if (!q.pinned && pinIcon) pinIcon.remove();
+      if (q.answered && !answeredIcon) {
+        const after = card.querySelector('.pin-icon');
+        if (after) after.insertAdjacentHTML('afterend', '<span class="answered-icon">✅</span>');
+        else card.querySelector('.q-body').insertAdjacentHTML('afterbegin', '<span class="answered-icon">✅</span>');
+      } else if (!q.answered && answeredIcon) answeredIcon.remove();
+
+      if (hasLiked(q.id)) card.querySelector('.like-btn').classList.add('liked');
+      sortQuestions();
+    });
+
+    socket.on('question:removed', ({ id }) => {
+      const card = document.querySelector(`.q-card[data-id="${id}"]`);
+      if (card) { card.remove(); updateQCount(-1); }
+    });
+
+    socket.on('poll:new', p => {
+      addPollCard(p);
+      updatePCount(1);
+    });
+
+    socket.on('poll:updated', ({ pollId, options }) => {
+      const card = document.querySelector(`.poll-card[data-poll-id="${pollId}"]`);
+      if (!card) return;
+      const total = options.reduce((s,o) => s + o.votes, 0);
+      const btns = card.querySelectorAll('.poll-vote-btn');
+      options.forEach((o, i) => {
+        if (btns[i]) {
+          btns[i].querySelector('.opt-count').textContent = o.votes + '표';
+          btns[i].querySelector('.opt-fill').style.width = (total ? (o.votes/total*100) : 0) + '%';
+        }
+      });
+    });
+
+    socket.on('poll:toggle', ({ id, active }) => {
+      const card = document.querySelector(`.poll-card[data-poll-id="${id}"]`);
+      if (!active && card) { card.remove(); updatePCount(-1); }
+      else if (active) location.reload(); // simplest way to re-render
+    });
+
+    socket.on('poll:remove', ({ id }) => {
+      const card = document.querySelector(`.poll-card[data-poll-id="${id}"]`);
+      if (card) { card.remove(); updatePCount(-1); }
+    });
+
+    function addQuestionCard(q) {
+      const list = document.getElementById('questionList');
+      const div = document.createElement('div');
+      div.className = 'q-card' + (q.answered ? ' answered' : '') + (q.pinned ? ' pinned' : '');
+      div.dataset.id = q.id;
+      div.dataset.likes = q.likes;
+      div.dataset.time = q.created_at;
+      div.innerHTML = `
+        <div class="q-body">
+          ${q.pinned ? '<span class="pin-icon">📌</span>' : ''}
+          ${q.answered ? '<span class="answered-icon">✅</span>' : ''}
+          <span class="q-text">${escapeHtml(q.text)}</span>
+          <span class="q-nick">— ${escapeHtml(q.nickname)}</span>
+        </div>
+        <div class="q-actions">
+          <button class="like-btn" onclick="likeQuestion(${q.id})">👍 <span class="lc">${q.likes}</span></button>
+        </div>
+      `;
+      list.prepend(div);
+    }
+
+    function addPollCard(p) {
+      const list = document.getElementById('pollList');
+      // Remove empty message if present
+      const empty = list.querySelector('.empty');
+      if (empty) empty.remove();
+      const total = p.options.reduce((s,o) => s + o.votes, 0);
+      const div = document.createElement('div');
+      div.className = 'poll-card';
+      div.dataset.pollId = p.id;
+      div.innerHTML = `
+        <h4>${escapeHtml(p.question)}</h4>
+        <div class="poll-options">
+          ${p.options.map(o => `
+            <button class="poll-vote-btn" onclick="votePoll(${p.id}, ${o.id})" data-opt-id="${o.id}">
+              <span class="opt-label">${escapeHtml(o.text)}</span>
+              <span class="opt-count">${o.votes}표</span>
+              <div class="opt-bar"><div class="opt-fill" style="width:${total ? (o.votes/total*100) : 0}%"></div></div>
+            </button>
+          `).join('')}
+        </div>
+      `;
+      list.prepend(div);
+    }
+
+    function updateQCount(delta) {
+      const el = document.getElementById('qCount');
+      el.textContent = parseInt(el.textContent) + delta;
+    }
+    function updatePCount(delta) {
+      const el = document.getElementById('pCount');
+      el.textContent = parseInt(el.textContent) + delta;
+    }
+
+    function escapeHtml(t) {
+      const d = document.createElement('div'); d.textContent = t; return d.innerHTML;
+    }
+  </script>
+</body>
+</html>

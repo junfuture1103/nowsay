@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NowSay - <%= room.title %> (관리)</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <nav class="admin-nav">
+    <a href="/admin" class="logo-sm">🎤 NowSay</a>
+    <div>
+      <a href="/r/<%= room.code %>" target="_blank" class="nav-link">참여자 화면 ↗</a>
+      <a href="/admin" class="nav-link">← 목록</a>
+      <a href="/logout" class="nav-link">로그아웃</a>
+    </div>
+  </nav>
+
+  <div class="container">
+    <!-- Room header -->
+    <div class="room-header">
+      <div>
+        <h2><%= room.title %></h2>
+        <div class="share-info">
+          <span class="code-badge big"><%= room.code %></span>
+          <span class="share-url" id="shareUrl"></span>
+          <button class="btn btn-sm" onclick="copyLink()">링크 복사</button>
+        </div>
+      </div>
+      <div class="qr-box">
+        <img src="/qr/<%= room.code %>" alt="QR Code" width="160" height="160" />
+        <small>QR로 참여</small>
+      </div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="tabs">
+      <button class="tab active" data-tab="questions">질문 (<span id="qCount"><%= questions.length %></span>)</button>
+      <button class="tab" data-tab="polls">투표 (<span id="pCount"><%= polls.length %></span>)</button>
+    </div>
+
+    <!-- Questions tab -->
+    <div class="tab-content active" id="tab-questions">
+      <div id="questionList" class="question-list">
+        <% questions.forEach(q => { %>
+          <div class="q-card <%= q.answered ? 'answered' : '' %> <%= q.pinned ? 'pinned' : '' %>" data-id="<%= q.id %>">
+            <div class="q-body">
+              <% if (q.pinned) { %><span class="pin-icon">📌</span><% } %>
+              <span class="q-text"><%= q.text %></span>
+              <span class="q-nick">— <%= q.nickname %></span>
+            </div>
+            <div class="q-actions">
+              <span class="like-count">👍 <span class="lc"><%= q.likes %></span></span>
+              <button class="btn btn-xs" onclick="toggleAnswered(<%= q.id %>)"><%= q.answered ? '미답변' : '답변완료' %></button>
+              <button class="btn btn-xs" onclick="togglePin(<%= q.id %>)"><%= q.pinned ? '고정해제' : '📌 고정' %></button>
+              <button class="btn btn-xs btn-danger" onclick="deleteQuestion(<%= q.id %>)">삭제</button>
+            </div>
+          </div>
+        <% }) %>
+      </div>
+    </div>
+
+    <!-- Polls tab -->
+    <div class="tab-content" id="tab-polls">
+      <form method="POST" action="/admin/rooms/<%= room.code %>/polls" class="poll-form">
+        <input type="text" name="question" placeholder="투표 질문" required maxlength="200" />
+        <textarea name="options" placeholder="선택지 (줄바꿈으로 구분, 최소 2개)" rows="4" required></textarea>
+        <button type="submit" class="btn">투표 만들기</button>
+      </form>
+
+      <div id="pollList" class="poll-list">
+        <% polls.forEach(p => { %>
+          <div class="poll-card" data-poll-id="<%= p.id %>">
+            <div class="poll-header">
+              <h4><%= p.question %></h4>
+              <div>
+                <span class="status-badge <%= p.active ? 'active' : '' %>"><%= p.active ? '진행중' : '종료' %></span>
+                <form method="POST" action="/admin/rooms/<%= room.code %>/polls/<%= p.id %>/toggle" style="display:inline">
+                  <button type="submit" class="btn btn-xs"><%= p.active ? '종료' : '재개' %></button>
+                </form>
+                <form method="POST" action="/admin/rooms/<%= room.code %>/polls/<%= p.id %>/delete" style="display:inline" onsubmit="return confirm('삭제?')">
+                  <button type="submit" class="btn btn-xs btn-danger">삭제</button>
+                </form>
+              </div>
+            </div>
+            <div class="poll-options">
+              <% const totalVotes = p.options.reduce((s,o) => s + o.votes, 0); %>
+              <% p.options.forEach(o => { %>
+                <div class="poll-opt">
+                  <div class="opt-label"><%= o.text %> <span class="opt-count"><%= o.votes %>표</span></div>
+                  <div class="opt-bar"><div class="opt-fill" style="width:<%= totalVotes ? (o.votes/totalVotes*100) : 0 %>%"></div></div>
+                </div>
+              <% }) %>
+            </div>
+          </div>
+        <% }) %>
+      </div>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const ROOM = '<%= room.code %>';
+    const socket = io();
+    socket.emit('join', ROOM);
+
+    // Share URL
+    const shareUrl = location.origin + '/r/' + ROOM;
+    document.getElementById('shareUrl').textContent = shareUrl;
+    function copyLink() {
+      navigator.clipboard.writeText(shareUrl).then(() => alert('링크가 복사되었습니다!'));
+    }
+
+    // Tabs
+    document.querySelectorAll('.tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+        tab.classList.add('active');
+        document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+      });
+    });
+
+    // Admin question actions via socket
+    function toggleAnswered(id) { socket.emit('question:answered', { id, roomCode: ROOM }); }
+    function togglePin(id) { socket.emit('question:pin', { id, roomCode: ROOM }); }
+    function deleteQuestion(id) { if(confirm('삭제?')) socket.emit('question:delete', { id, roomCode: ROOM }); }
+
+    // Real-time events
+    socket.on('question:new', q => {
+      addQuestionCard(q, true);
+      updateQCount(1);
+    });
+
+    socket.on('question:updated', q => {
+      const card = document.querySelector(`.q-card[data-id="${q.id}"]`);
+      if (!card) return;
+      card.className = 'q-card' + (q.answered ? ' answered' : '') + (q.pinned ? ' pinned' : '');
+      card.querySelector('.q-text').textContent = q.text;
+      card.querySelector('.lc').textContent = q.likes;
+      // Update buttons
+      const btns = card.querySelectorAll('.q-actions .btn');
+      btns[0].textContent = q.answered ? '미답변' : '답변완료';
+      btns[1].textContent = q.pinned ? '고정해제' : '📌 고정';
+      // Pin icon
+      const pinIcon = card.querySelector('.pin-icon');
+      if (q.pinned && !pinIcon) {
+        card.querySelector('.q-body').insertAdjacentHTML('afterbegin', '<span class="pin-icon">📌</span>');
+      } else if (!q.pinned && pinIcon) {
+        pinIcon.remove();
+      }
+    });
+
+    socket.on('question:removed', ({ id }) => {
+      const card = document.querySelector(`.q-card[data-id="${id}"]`);
+      if (card) { card.remove(); updateQCount(-1); }
+    });
+
+    socket.on('poll:updated', ({ pollId, options }) => {
+      const card = document.querySelector(`.poll-card[data-poll-id="${pollId}"]`);
+      if (!card) return;
+      const total = options.reduce((s,o) => s + o.votes, 0);
+      const optEls = card.querySelectorAll('.poll-opt');
+      options.forEach((o, i) => {
+        if (optEls[i]) {
+          optEls[i].querySelector('.opt-count').textContent = o.votes + '표';
+          optEls[i].querySelector('.opt-fill').style.width = (total ? (o.votes/total*100) : 0) + '%';
+        }
+      });
+    });
+
+    function addQuestionCard(q, isAdmin) {
+      const list = document.getElementById('questionList');
+      const div = document.createElement('div');
+      div.className = 'q-card' + (q.answered ? ' answered' : '') + (q.pinned ? ' pinned' : '');
+      div.dataset.id = q.id;
+      div.innerHTML = `
+        <div class="q-body">
+          ${q.pinned ? '<span class="pin-icon">📌</span>' : ''}
+          <span class="q-text">${escapeHtml(q.text)}</span>
+          <span class="q-nick">— ${escapeHtml(q.nickname)}</span>
+        </div>
+        <div class="q-actions">
+          <span class="like-count">👍 <span class="lc">${q.likes}</span></span>
+          <button class="btn btn-xs" onclick="toggleAnswered(${q.id})">${q.answered ? '미답변' : '답변완료'}</button>
+          <button class="btn btn-xs" onclick="togglePin(${q.id})">${q.pinned ? '고정해제' : '📌 고정'}</button>
+          <button class="btn btn-xs btn-danger" onclick="deleteQuestion(${q.id})">삭제</button>
+        </div>
+      `;
+      list.prepend(div);
+    }
+
+    function updateQCount(delta) {
+      const el = document.getElementById('qCount');
+      el.textContent = parseInt(el.textContent) + delta;
+    }
+
+    function escapeHtml(t) {
+      const d = document.createElement('div'); d.textContent = t; return d.innerHTML;
+    }
+  </script>
+</body>
+</html>

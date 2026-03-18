@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NowSay</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div class="landing">
+    <div class="landing-card">
+      <h1 class="logo">🎤 NowSay</h1>
+      <p class="tagline">실시간 익명 Q&A · 투표</p>
+
+      <form class="join-form" action="/join" method="GET" onsubmit="return handleJoin(event)">
+        <input type="text" id="codeInput" placeholder="참여 코드 입력" maxlength="10" autocomplete="off" />
+        <button type="submit">참여하기</button>
+      </form>
+
+      <div class="divider"><span>또는</span></div>
+
+      <a href="/login" class="admin-link">강의자 로그인 →</a>
+    </div>
+  </div>
+  <script>
+    function handleJoin(e) {
+      e.preventDefault();
+      const code = document.getElementById('codeInput').value.trim();
+      if (code) window.location.href = '/r/' + encodeURIComponent(code);
+    }
+  </script>
+</body>
+</html>

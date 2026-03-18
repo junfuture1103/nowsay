@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NowSay - 관리자</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <nav class="admin-nav">
+    <a href="/admin" class="logo-sm">🎤 NowSay</a>
+    <a href="/logout" class="nav-link">로그아웃</a>
+  </nav>
+
+  <div class="container">
+    <h2>강의실 관리</h2>
+
+    <form class="create-room-form" method="POST" action="/admin/rooms">
+      <input type="text" name="title" placeholder="새 강의실 이름" required maxlength="100" />
+      <button type="submit">만들기</button>
+    </form>
+
+    <div class="room-list">
+      <% if (rooms.length === 0) { %>
+        <p class="empty">아직 만들어진 강의실이 없습니다.</p>
+      <% } %>
+      <% rooms.forEach(room => { %>
+        <div class="room-card <%= room.active ? '' : 'inactive' %>">
+          <div class="room-info">
+            <h3><a href="/admin/rooms/<%= room.code %>"><%= room.title %></a></h3>
+            <div class="room-meta">
+              <span class="code-badge"><%= room.code %></span>
+              <span class="status-badge <%= room.active ? 'active' : '' %>"><%= room.active ? '활성' : '비활성' %></span>
+            </div>
+          </div>
+          <div class="room-actions">
+            <a href="/r/<%= room.code %>" target="_blank" class="btn btn-sm">미리보기</a>
+            <form method="POST" action="/admin/rooms/<%= room.code %>/toggle" style="display:inline">
+              <button type="submit" class="btn btn-sm btn-outline"><%= room.active ? '비활성화' : '활성화' %></button>
+            </form>
+            <form method="POST" action="/admin/rooms/<%= room.code %>/delete" style="display:inline" onsubmit="return confirm('정말 삭제하시겠습니까?')">
+              <button type="submit" class="btn btn-sm btn-danger">삭제</button>
+            </form>
+          </div>
+        </div>
+      <% }) %>
+    </div>
+  </div>
+</body>
+</html>

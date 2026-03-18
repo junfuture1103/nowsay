@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NowSay - 로그인</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div class="landing">
+    <div class="landing-card">
+      <h1 class="logo">🎤 NowSay</h1>
+      <p class="tagline">강의자 로그인</p>
+
+      <% if (error) { %>
+        <div class="error-msg"><%= error %></div>
+      <% } %>
+
+      <form class="login-form" method="POST" action="/login">
+        <input type="text" name="username" placeholder="아이디" required autocomplete="username" />
+        <input type="password" name="password" placeholder="비밀번호" required autocomplete="current-password" />
+        <button type="submit">로그인</button>
+      </form>
+
+      <a href="/" class="back-link">← 홈으로</a>
+    </div>
+  </div>
+</body>
+</html>
